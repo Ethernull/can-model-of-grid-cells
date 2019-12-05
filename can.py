@@ -3,38 +3,40 @@ import matplotlib.pyplot as plt
 
 
 class CAN:
-    def __init__(self, size, tau, dt, kappa, beta,movement_mode, plot_weights=True):
-        #TODO implement activation function from Sanarmirskaya and Schöner - 2010
-        self.u = np.random.random(size) #activation function (stabilization factor if *(-1)) ?
+    def __init__(self, size, tau, dt, kappa, beta, h,movement_mode, plot_weights=True, von_mises=True):
+        self.u = np.random.random(size) 
         self.u_log = []
         self.tau = tau
         self.dt = dt
         self.beta = beta
-        self.u_shift_none = self.u
-        self.u_shift_right = self.u
-        self.u_shift_left = self.u
-        self.mode = movement_mode #0: none #1: right
+        self.h = h
+        self.von_mises = von_mises
+        self.mode = movement_mode #0: none #1: right-only #2: left-only #3: random
+        #TODO create shifting layers
+        self.u_shift = []
+        self.u_shift.append(self.u.copy())
+        #TODO  append shifting layers for moving directions
+        
 
         # create weight matrix
         self.w = np.empty((size, size))
         phases = np.arange(-np.pi, np.pi, 2*np.pi/size)
-        #for input_num, input_phase in enumerate(phases):
-            #self.w[:, input_num] = np.exp(kappa * np.cos(phases - input_phase))/np.exp(kappa)
 
-        #TODO integrate inhibitory connections
-        #range : sigma (3.0 ; [3.0,3.0])
-        #excitatory connectivity strength: c_exc (0.9 ; 0.6)
-        #inhibitory connectivity strength: c_inh (5.0 ; 0.5)
-        #values used in Sanarmirskaya and Schöner - 2010 
+        #connectivity values used in Sanarmirskaya and Schöner - 2010 
+        sigma = 3.0 #range : sigma (3.0 ; [3.0,3.0])
+        c_exc = 0.9 #excitatory connectivity strength: c_exc (0.9 ; 0.6)
+        c_inh = 5.0 #inhibitory connectivity strength: c_inh (5.0 ; 0.5)
 
-        sigma = 3.0
-        c_exc = 0.9
-        c_inh = 5.0
+        #TODO create multiple weight distributions based on needed shifting directions
 
-        #TODO create shifted weight distributions based on needed shifting directions
-        for input_num, input_phase in enumerate(phases):
-            self.w[:,input_num] = c_exc * np.exp( - pow((phases-input_phase),2) / (2* pow(sigma,2))) - c_inh
-
+        #Weight matrix using von Mises distribution
+        if von_mises:
+            for input_num, input_phase in enumerate(phases):
+                self.w[:, input_num] = np.exp(kappa * np.cos(phases - input_phase))/np.exp(kappa)
+        else:   
+            for input_num, input_phase in enumerate(phases):
+                self.w[:,input_num] = c_exc * np.exp( - pow((phases-input_phase),2) / (2* pow(sigma,2))) - c_inh
+        
         if plot_weights:
             fig, ax = plt.subplots()
             mat = ax.matshow(self.w)
@@ -44,17 +46,42 @@ class CAN:
             ax.set_ylabel("Output unit number")
             plt.colorbar(mat, ax=ax)
 
-    def run(self, sim_time):
-        for step_num in range(int(round(sim_time/self.dt)) + 1):
-            u_out = 1/(1 + np.exp(self.beta*(self.u - 0.5)))   #Sigmoid function (Beta = -8)(? = 0.5)
-            exc_input = np.dot(u_out, self.w)           #Sum: f(u(x, t)ω(x − x')dx'
-            inh_input = max(0, np.sum(u_out) - 1)       #External input S(x,t) ?
+    #---Consideration: Create new object class---
+    def no_movement(self):
+        return 0
 
+    def moving_right(self):
+        return 1
+    
+    def movement_signal(self):
+        switcher = {
+            0:self.no_movement,
+            1:self.moving_right
+            #2:moving left,
+            #3:random_movement,
+        }
+
+        func = switcher.get(self.mode, lambda: "Invalid mode")
+        return func()
+    #------
+    
+    def run(self, sim_time):
+        move_signal = self.movement_signal() 
+        print(self.u)
+        for step_num in range(int(round(sim_time/self.dt)) + 1):
             
-            #TODO implement negative resting level h < 0
+            u_out = 1/(1 + np.exp(self.beta*(self.u_shift[move_signal] - 0.5)))    #Activation function [Beta = -8](? = 0.5)
+            exc_input = np.dot(u_out, self.w)                   #Sum: f(u(x, t)ω(x − x')dx'
+            if self.von_mises:
+                inh_input = max(0, np.sum(u_out) - 1)               #Inhibition, needed for von Mises distribution
+            else:
+                inh_input = 0
+            
             #TODO use shifting layers based on return value of movement_signal and gridcell input
-            self.u += (-self.u + exc_input - inh_input)/self.tau*self.dt
+            self.u += (-self.u + exc_input - inh_input - self.h)/self.tau*self.dt
+            #self.u += (-self.u + exc_input - self.h)/self.tau*self.dt
             self.u_log.append(self.u.copy())
+            self.u_shift[move_signal] = self.u #Update shifting layer
 
     def plot_activities(self):
         fig, ax = plt.subplots()
@@ -68,20 +95,4 @@ class CAN:
         plt.colorbar(mat, ax=ax)
         plt.show()
 
-    def no_movement():
-        return 0
-
-    def moving_right():
-        return 1
     
-    def movement_signal():
-        switcher = {
-            1:no_movement,
-            2:moving_right
-            #3:moving left,
-            #4:random_movement,
-        }
-
-        func = switcher.get(mode, lambda: "Invalid mode")
-
-        func()
