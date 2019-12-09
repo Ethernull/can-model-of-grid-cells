@@ -12,22 +12,21 @@ class CAN:
         self.h = h
         self.von_mises = von_mises
         self.mode = movement_mode #0: none #1: right-only #2: left-only #3: random
-        #TODO create shifting layers
-        self.u_shift = []
-        self.u_shift.append(self.u.copy())
-        #TODO  append shifting layers for moving directions
-        
 
-        # create weight matrix
+        #TODO replace shifting layers
+        self.u_shift = []
+        self.u_shift.append(self.u.copy())  #still layer
+        self.u_shift.append(self.u.copy())  #right layer (placeholder)
+        self.u_shift.append(self.u.copy())  #left  layer (placeholder)
+
+        #Create weight matrix
         self.w = np.empty((size, size))
         phases = np.arange(-np.pi, np.pi, 2*np.pi/size)
 
-        #connectivity values used in Sanarmirskaya and Schöner - 2010 
-        sigma = 3.0 #range : sigma (3.0 ; [3.0,3.0])
-        c_exc = 0.9 #excitatory connectivity strength: c_exc (0.9 ; 0.6)
-        c_inh = 5.0 #inhibitory connectivity strength: c_inh (5.0 ; 0.5)
-
-        #TODO create multiple weight distributions based on needed shifting directions
+        #Connectivity values used in for weight matrix, Sanarmirskaya and Schöner - 2010 
+        sigma = 1.0 #range
+        c_exc = 1.0 #excitatory connectivity strength
+        c_inh = 0.5 #inhibitory connectivity strength
 
         #Weight matrix using von Mises distribution
         if von_mises:
@@ -36,10 +35,15 @@ class CAN:
         else:   
             for input_num, input_phase in enumerate(phases):
                 self.w[:,input_num] = c_exc * np.exp( - pow((phases-input_phase),2) / (2* pow(sigma,2))) - c_inh
+
+        #Create multiple weight matrices based on needed shifting directions
+        self.w_right = np.roll(self.w.copy(),10,axis=1)
+        self.w_left = np.roll(self.w.copy(),10,axis=1)
         
         if plot_weights:
             fig, ax = plt.subplots()
             mat = ax.matshow(self.w)
+            #mat = ax.matshow(self.w_right)
             ax.xaxis.set_ticks_position('bottom')
             ax.set_title("Weight matrix")
             ax.set_xlabel("Input unit number")
@@ -48,10 +52,25 @@ class CAN:
 
     #---Consideration: Create new object class---
     def no_movement(self):
-        return 0
+        dir_weights = []
+        dir_weights.append(1.0)
+        dir_weights.append(0.0)
+        dir_weights.append(0.0)
+        return dir_weights
 
     def moving_right(self):
-        return 1
+        dir_weights = []
+        dir_weights.append(0.0)
+        dir_weights.append(1.0)
+        dir_weights.append(0.0)
+        return dir_weights
+    
+    #def moving_right(self):
+    #    dir_weights = []
+    #    dir_weights.append(random.randrange(0,10,1)/10)
+    #    dir_weights.append(1.0 - dir_weights[0])
+    #    dir_weights.append(0.0)
+    #    return dir_weights
     
     def movement_signal(self):
         switcher = {
@@ -66,22 +85,31 @@ class CAN:
     #------
     
     def run(self, sim_time):
-        move_signal = self.movement_signal() 
-        print(self.u)
+        move_signal = self.movement_signal()
+        #threshold = 0.5
+        
         for step_num in range(int(round(sim_time/self.dt)) + 1):
             
-            u_out = 1/(1 + np.exp(self.beta*(self.u_shift[move_signal] - 0.5)))    #Activation function [Beta = -8](? = 0.5)
+            u_out = 1/(1 + np.exp(self.beta*(self.u - 0.5)))    #Activation function [Beta = -8](? = 0.5)
             exc_input = np.dot(u_out, self.w)                   #Sum: f(u(x, t)ω(x − x')dx'
+
+            #TODO use shifting layers based on movement_signal and gridcell input
+            #if move_signal[1] * self_u > threshold
+            #u_out_right = 1/(1 + np.exp(self.beta*(self.u_shift[1] - 0.5)))
+            #exc_input = np.dot(u_out_right, self.w_right)
+            
             if self.von_mises:
                 inh_input = max(0, np.sum(u_out) - 1)               #Inhibition, needed for von Mises distribution
             else:
                 inh_input = 0
             
-            #TODO use shifting layers based on return value of movement_signal and gridcell input
             self.u += (-self.u + exc_input - inh_input - self.h)/self.tau*self.dt
-            #self.u += (-self.u + exc_input - self.h)/self.tau*self.dt
             self.u_log.append(self.u.copy())
-            self.u_shift[move_signal] = self.u #Update shifting layer
+            
+            #Update all shifting layers
+            self.u_shift[0] = self.u.copy()
+            #self.u_shift[1] = self.u
+            #self.u_shift[2] = self.u
 
     def plot_activities(self):
         fig, ax = plt.subplots()
