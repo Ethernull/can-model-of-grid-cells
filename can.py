@@ -1,34 +1,42 @@
 import numpy as np
 import matplotlib.pyplot as plt
-
+import random
 
 class CAN:
     def __init__(self, size, tau, dt, kappa, beta, h,movement_mode, plot_weights=True, von_mises=True):
         self.size = size
-        self.u = np.random.random(size) 
+        #self.u = np.random.random(size)
+
+        self.u = np.zeros(size)
+        self.u[5] = 1 #Initial active gridcell
         self.u_log = []
+
+        self.position_factor = 0.1 # mapped distance between two cells in meters
+        self.position_log = []
+        self.real_position = (size - 5 - 1) * self.position_factor
+
         self.tau = tau
         self.dt = dt
         self.beta = beta
         self.h = h
         self.von_mises = von_mises
-        self.mode = movement_mode #0: none #1: right-only #2: left-only #3: random
 
-        self.movement = np.full((size,),self.movement_signal()[0])
-        #self.u_shift = (self.u - np.ones(size) + self.movement).clip(0)
+        #self.mode = movement_mode #0: none #1: right-only #2: left-only #3: random
+        #self.movement = self.movement_signal()[0]
+        #self.movement_r = self.movement_signal()[1]
+        #self.movement_l = self.movement_signal()[2]
 
-        self.movement_r = np.full((size,),self.movement_signal()[1])
-        #self.u_shift_r = (self.u - np.ones(size) + self.movement_r).clip(0)
-        
-        self.movement_l = np.full((size,),self.movement_signal()[2])
-        #self.u_shift_l = (self.u - np.ones(size) + self.movement_l).clip(0)
+        #TODO fix speed variations
+        self.movement = 0.5 
+        self.movement_r = 0
+        self.movement_l = 0.5
 
         #Create weight matrix
         self.w = np.empty((size, size))
         self.w_right = np.empty((size,size))
         self.w_left = np.empty((size,size))
         phases = np.arange(-np.pi, np.pi, 2*np.pi/size)
-        weight_shift = np.pi/10
+        weight_shift = np.pi/20
 
         #Connectivity values used in for weight matrix, Sanarmirskaya and Schöner - 2010 
         sigma = 1.0 #range
@@ -51,64 +59,56 @@ class CAN:
             fig, ax = plt.subplots()
             mat = ax.matshow(self.w)
             #mat = ax.matshow(self.w_right)
+            #mat = ax.matshow(self.w_left)
             ax.xaxis.set_ticks_position('bottom')
             ax.set_title("Weight matrix")
             ax.set_xlabel("Input unit number")
             ax.set_ylabel("Output unit number")
             plt.colorbar(mat, ax=ax)
 
-    #---Consideration: Create new object class---
-    def no_movement(self):
-        directional_bias = [1.0,0,0]
-        return directional_bias
+    #Generates varying movement and returns current real position
+    #TODO implement left direction
+    def get_new_position(self): 
+        max_speed = 0.01  #0.01 meters #TODO calculate max speed based on conversion factor
+        r = (random.randrange(0,100,1)/100) * max_speed
+        l = 0
+        self.real_position -= r
+        if self.real_position < 0:
+            self.real_position = (self.size - 1) * self.position_factor
+        position = [r/max_speed,l/max_speed]
+        return position
 
-    def moving_right(self):
-        directional_bias = [0,1.0,0]
-        return directional_bias
-    
-    #def moving_right(self):
-    #    dir_weights = []
-    #    dir_weights.append(random.randrange(0,10,1)/10)
-    #    dir_weights.append(1.0 - dir_weights[0])
-    #    dir_weights.append(0.0)
-    #    return dir_weights
-    
-    def movement_signal(self):
-        switcher = {
-            0:self.no_movement,
-            1:self.moving_right
-            #2:moving left,
-            #3:random_movement,
-        }
-
-        func = switcher.get(self.mode, lambda: "Invalid mode")
-        return func()
-    #------
+    #Calculates and updates movement values from real position
+    def translate_real_position(self,position):
+        self.movement_r = position[0] #/ self.position_factor
+        self.movement = 1 - self.movement_r
+        self.movement_l = 0 #TODO Implement opposite direction
+        
     
     def run(self, sim_time):
         for step_num in range(int(round(sim_time/self.dt)) + 1):
             u_out = 1/(1 + np.exp(self.beta*(self.u - 0.5)))
+
             #Update all shifting layers: f(g-1+m)
-            self.u_shift = (u_out - np.ones(self.size) + self.movement).clip(0)
-            self.u_shift_r = (u_out - np.ones(self.size) + self.movement_r).clip(0)
-            self.u_shift_l = (u_out - np.ones(self.size) + self.movement_l).clip(0)
-            #print(self.u_shift_r)
+            self.u_shift   = (u_out - 1 + self.movement).clip(0)
+            self.u_shift_r = (u_out - 1 + self.movement_r).clip(0)
+            self.u_shift_l = (u_out - 1 + self.movement_l).clip(0)
             
-            #exc_input = np.dot(u_out, self.w) #Old method
-            #exc_input = np.dot(u_out, self.w_right) #Testing right shift
-            
-            exc_input = np.dot(self.u_shift, self.w) #New method using shifting layer
+            exc_input = np.dot(self.u_shift, self.w)
             exc_input_r = np.dot(self.u_shift_r,self.w_right)
-            exc_input_l = np.dot(self.u_shift_r,self.w_left)
+            exc_input_l = np.dot(self.u_shift_l,self.w_left)
             
             if self.von_mises:
                 inh_input = max(0, np.sum(u_out) - 1)               #Inhibition, needed for von Mises distribution
             else:
                 inh_input = 0
 
-            self.u += (-self.u + exc_input - inh_input - self.h)/self.tau*self.dt
-            self.u += exc_input_r
+            self.u += (-self.u + exc_input - inh_input - self.h + exc_input_r + exc_input_l)/self.tau*self.dt
             self.u_log.append(self.u.copy())
+            p = self.get_new_position()
+            #self.translate_real_position(p)
+            if step_num % 10 == 0:
+                self.position_log.append(self.real_position/self.position_factor)
             
             
 
@@ -121,6 +121,7 @@ class CAN:
         ax.set_title("Network activities")
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("Unit number")
+        plt.plot(self.position_log,'r-')
         plt.colorbar(mat, ax=ax)
         plt.show()
 
