@@ -27,9 +27,9 @@ class CAN:
         #self.movement_l = self.movement_signal()[2]
 
         #TODO fix speed variations
-        self.movement = 0.5 
-        self.movement_r = 0
-        self.movement_l = 0.5
+        self.movement = 0.5
+        self.movement_r = 0.5
+        self.movement_l = 0
 
         #Create weight matrix
         self.w = np.empty((size, size))
@@ -53,7 +53,7 @@ class CAN:
             for input_num, input_phase in enumerate(phases):
                 self.w[:, input_num] = c_exc * np.exp( - pow((phases-input_phase),2) / (2* pow(sigma, 2))) - c_inh
                 self.w_right[:, input_num] = c_exc * np.exp( - pow((phases + weight_shift - input_phase), 2) / (2 * pow(sigma, 2))) - c_inh
-                self.w_let[:, input_num] = c_exc * np.exp( - pow((phases - weight_shift - input_phase), 2) / (2 * pow(sigma, 2))) - c_inh
+                self.w_left[:, input_num] = c_exc * np.exp( - pow((phases - weight_shift - input_phase), 2) / (2 * pow(sigma, 2))) - c_inh
         
         if plot_weights:
             fig, ax = plt.subplots()
@@ -69,10 +69,10 @@ class CAN:
     #Generates varying movement and returns current real position
     #TODO implement left direction
     def get_new_position(self): 
-        max_speed = 0.01  #0.01 meters #TODO calculate max speed based on conversion factor
-        r = (random.randrange(0,100,1)/100) * max_speed
+        max_speed = 0.08  #0.01 meters #TODO calculate max speed based on conversion factor
+        r = random.random() * max_speed
         l = 0
-        self.real_position -= r
+        self.real_position -= r * self.dt
         if self.real_position < 0:
             self.real_position = (self.size - 1) * self.position_factor
         position = [r/max_speed,l/max_speed]
@@ -90,9 +90,9 @@ class CAN:
             u_out = 1/(1 + np.exp(self.beta*(self.u - 0.5)))
 
             #Update all shifting layers: f(g-1+m)
-            self.u_shift   = (u_out - 1 + self.movement).clip(0)
-            self.u_shift_r = (u_out - 1 + self.movement_r).clip(0)
-            self.u_shift_l = (u_out - 1 + self.movement_l).clip(0)
+            self.u_shift   = u_out * self.movement
+            self.u_shift_r = u_out * self.movement_r
+            self.u_shift_l = u_out * self.movement_l
             
             exc_input = np.dot(self.u_shift, self.w)
             exc_input_r = np.dot(self.u_shift_r,self.w_right)
@@ -106,11 +106,10 @@ class CAN:
             self.u += (-self.u + exc_input - inh_input - self.h + exc_input_r + exc_input_l)/self.tau*self.dt
             self.u_log.append(self.u.copy())
             p = self.get_new_position()
-            #self.translate_real_position(p)
+            self.translate_real_position(p)
             if step_num % 10 == 0:
                 self.position_log.append(self.real_position/self.position_factor)
-            
-            
+
 
     def plot_activities(self):
         fig, ax = plt.subplots()
@@ -121,7 +120,7 @@ class CAN:
         ax.set_title("Network activities")
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("Unit number")
-        plt.plot(self.position_log,'r-')
+        plt.plot(self.position_log, 'r-')
         plt.colorbar(mat, ax=ax)
         plt.show()
 
