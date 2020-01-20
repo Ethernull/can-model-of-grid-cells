@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import random
+import math
 
 class CAN:
     def __init__(self, size, tau, dt, kappa, beta, h,movement_mode, plot_weights=True, von_mises=True):
@@ -11,22 +12,20 @@ class CAN:
         self.u[5] = 1 #Initial active gridcell
         self.u_log = []
 
-        self.position_factor = 0.1 # mapped distance between two cells in meters
-        self.position_log = []
-        self.real_position = (size - 5 - 1) * self.position_factor
+        self.grid_position_factor = 0.1 # mapped distance between two cells in meters
+        self.grid_position_log = []
+        self.real_position = (size - 5 - 1) * self.grid_position_factor
 
-        self.tau = tau
+        #self.tau = tau
+        self.tau = 2
         self.dt = dt
         self.beta = beta
         self.h = h
         self.von_mises = von_mises
 
-        #self.mode = movement_mode #0: none #1: right-only #2: left-only #3: random
-        #self.movement = self.movement_signal()[0]
-        #self.movement_r = self.movement_signal()[1]
-        #self.movement_l = self.movement_signal()[2]
-
-        #TODO fix speed variations
+        self.timestep_counter = 1
+        self.max_speed = 0.08 # in m/s
+        self.current_speed = 0.04
         self.movement = 0.5
         self.movement_r = 0.5
         self.movement_l = 0
@@ -36,7 +35,7 @@ class CAN:
         self.w_right = np.empty((size,size))
         self.w_left = np.empty((size,size))
         phases = np.arange(-np.pi, np.pi, 2*np.pi/size)
-        weight_shift = np.pi/20
+        weight_shift = 2*np.pi/15
 
         #Connectivity values used in for weight matrix, Sanarmirskaya and Schöner - 2010 
         sigma = 1.0 #range
@@ -68,21 +67,42 @@ class CAN:
 
     #Generates varying movement and returns current real position
     #TODO implement left direction
-    def get_new_position(self): 
-        max_speed = 0.08  #0.01 meters #TODO calculate max speed based on conversion factor
-        r = random.random() * max_speed
-        l = 0
-        self.real_position -= r * self.dt
+    def get_new_position(self,step_num): 
+        if self.timestep_counter % 10 == 0:
+            alpha = 0.95
+            target_speed = random.random() * self.max_speed
+            self.current_speed = alpha * self.current_speed + (1-alpha) * target_speed
+            self.timestep_counter += 1
+        self.timestep_counter += 1
+        if step_num < 1000:
+            r = self.current_speed
+            l = 0
+            self.real_position -= r * self.dt
+        else:
+            r = 0
+            l = self.current_speed
+            self.real_position += l * self.dt
+
+        print(self.real_position)
         if self.real_position < 0:
-            self.real_position = (self.size - 1) * self.position_factor
-        position = [r/max_speed,l/max_speed]
+            self.grid_position_log.append((step_num*self.dt,math.nan))
+            self.real_position = (self.size - 1) * self.grid_position_factor
+        if self.real_position > (self.size - 1) * self.grid_position_factor:
+            self.grid_position_log.append((step_num*self.dt,math.nan))
+            self.real_position = 0
+        position = [r/self.max_speed,l/self.max_speed] #TODO rename variable
         return position
 
-    #Calculates and updates movement values from real position
+    #Converts real world speed into vector form
     def translate_real_position(self,position):
-        self.movement_r = position[0] #/ self.position_factor
-        self.movement = 1 - self.movement_r
-        self.movement_l = 0 #TODO Implement opposite direction
+        if position[1] == 0:
+            self.movement_r = position[0]
+            self.movement = 1 - self.movement_r
+            self.movement_l = 0
+        else:
+            self.movement_l = position[1]
+            self.movement = 1 - self.movement_l
+            self.movement_r = 0
         
     
     def run(self, sim_time):
@@ -105,10 +125,10 @@ class CAN:
 
             self.u += (-self.u + exc_input - inh_input - self.h + exc_input_r + exc_input_l)/self.tau*self.dt
             self.u_log.append(self.u.copy())
-            p = self.get_new_position()
+            p = self.get_new_position(step_num)
             self.translate_real_position(p)
-            if step_num % 10 == 0:
-                self.position_log.append(self.real_position/self.position_factor)
+            #if step_num % 10 == 0:
+            self.grid_position_log.append((step_num*self.dt,self.real_position/self.grid_position_factor))
 
 
     def plot_activities(self):
@@ -120,7 +140,10 @@ class CAN:
         ax.set_title("Network activities")
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("Unit number")
-        plt.plot(self.position_log, 'r-')
+        x_val = [x[0] for x in self.grid_position_log]
+        y_val = [x[1] for x in self.grid_position_log]
+        plt.plot(x_val,y_val,'r-')
+        #plt.plot(self.grid_position_log, 'r-')
         plt.colorbar(mat, ax=ax)
         plt.show()
 
