@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import random
 import math
+from scipy import stats
 
 class CAN:
     def __init__(self, size, tau, dt, kappa, beta, h,movement_mode, plot_weights=True, von_mises=True):
@@ -30,6 +31,8 @@ class CAN:
         self.movement_r = 0.5
         self.movement_l = 0
 
+        self.slope_calc_done = False
+
         #Create weight matrix
         self.w = np.empty((size, size))
         self.w_right = np.empty((size,size))
@@ -54,7 +57,8 @@ class CAN:
                 self.w_right[:, input_num] = c_exc * np.exp( - pow((phases + weight_shift - input_phase), 2) / (2 * pow(sigma, 2))) - c_inh
                 self.w_left[:, input_num] = c_exc * np.exp( - pow((phases - weight_shift - input_phase), 2) / (2 * pow(sigma, 2))) - c_inh
         
-        if plot_weights:
+        if False:
+        #if plot_weights:
             fig, ax = plt.subplots()
             mat = ax.matshow(self.w)
             #mat = ax.matshow(self.w_right)
@@ -66,30 +70,40 @@ class CAN:
             plt.colorbar(mat, ax=ax)
 
     #Generates varying movement and returns current real position
-    #TODO implement left direction
     def get_new_position(self,step_num): 
-        if self.timestep_counter % 10 == 0:
-            alpha = 0.95
-            target_speed = random.random() * self.max_speed
-            self.current_speed = alpha * self.current_speed + (1-alpha) * target_speed
-            self.timestep_counter += 1
-        self.timestep_counter += 1
-        if step_num < 1000:
-            r = self.current_speed
-            l = 0
-            self.real_position -= r * self.dt
-        else:
-            r = 0
-            l = self.current_speed
-            self.real_position += l * self.dt
+##        if self.timestep_counter % 10 == 0:
+##            alpha = 0.95
+##            target_speed = random.random() * self.max_speed
+##            self.current_speed = alpha * self.current_speed + (1-alpha) * target_speed
+##            self.timestep_counter += 1
+##        self.timestep_counter += 1
 
-        print(self.real_position)
+        #if step_num < 1000:
+        r = self.current_speed
+        l = 0
+        self.real_position -= r * self.dt
+##      else:
+##          r = 0
+##          l = self.current_speed
+##          self.real_position += l * self.dt
+
         if self.real_position < 0:
+            if self.slope_calc_done == False:
+                self.slope_calc_done = True
+                x = []
+                y = []
+                for pair in self.grid_position_log:
+                    x.append(pair[0])
+                    y.append(pair[1])
+                lr = stats.linregress(x,y)
+                print(lr.slope)
             self.grid_position_log.append((step_num*self.dt,math.nan))
             self.real_position = (self.size - 1) * self.grid_position_factor
+            
         if self.real_position > (self.size - 1) * self.grid_position_factor:
             self.grid_position_log.append((step_num*self.dt,math.nan))
             self.real_position = 0
+            
         position = [r/self.max_speed,l/self.max_speed] #TODO rename variable
         return position
 
@@ -127,7 +141,6 @@ class CAN:
             self.u_log.append(self.u.copy())
             p = self.get_new_position(step_num)
             self.translate_real_position(p)
-            #if step_num % 10 == 0:
             self.grid_position_log.append((step_num*self.dt,self.real_position/self.grid_position_factor))
 
 
@@ -143,8 +156,12 @@ class CAN:
         x_val = [x[0] for x in self.grid_position_log]
         y_val = [x[1] for x in self.grid_position_log]
         plt.plot(x_val,y_val,'r-')
-        #plt.plot(self.grid_position_log, 'r-')
-        plt.colorbar(mat, ax=ax)
+        cbaxes = fig.add_axes([0.92, 0.1, 0.01, 0.8])
+        plt.colorbar(mat, cax=cbaxes)
+        ax2 = ax.twinx()
+        ax2.set_ylim(0,self.size * self.grid_position_factor)
+        ax2.set_ylabel("Distance (m)")
+        plt.subplots_adjust(right=0.8)
         plt.show()
 
     
