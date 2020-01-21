@@ -17,8 +17,7 @@ class CAN:
         self.grid_position_log = []
         self.real_position = (size - 5 - 1) * self.grid_position_factor
 
-        #self.tau = tau
-        self.tau = 2
+        self.tau = tau
         self.dt = dt
         self.beta = beta
         self.h = h
