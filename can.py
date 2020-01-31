@@ -5,17 +5,20 @@ import math
 from scipy import stats
 
 class CAN:
-    def __init__(self, size, tau, dt, kappa, beta, ws_param, h, plot_weights=True):
+    def __init__(self, size, tau, dt, kappa, beta, ws_param, speed, h, plot_weights=True):
         self.size = size
         #self.u = np.random.random(size)
 
         self.u = np.zeros(size)
         self.u[5] = 1 #Initial active gridcell
+        self.u_out_log = []
         self.u_log = []
 
-        self.grid_position_factor = 0.1 # mapped distance between two cells in meters
+        self.grid_position_factor = 0.025 # mapped distance between two cells in meters
         self.grid_position_log = []
         self.real_position = (size - 5 - 1) * self.grid_position_factor
+
+        #self.spatial_bin = np.zeros(size*self.grid_position_factor*100)
 
         self.tau = tau
         self.dt = dt
@@ -26,7 +29,7 @@ class CAN:
 
         self.timestep_counter = 1
         self.max_speed = 0.08 # in m/s
-        self.current_speed = 0.04
+        self.current_speed = speed
         self.movement = 0.5
         self.movement_r = 0.5
         self.movement_l = 0
@@ -138,7 +141,8 @@ class CAN:
     def run(self, sim_time):
         for step_num in range(int(round(sim_time/self.dt)) + 1):
             u_out = 1/(1 + np.exp(self.beta*(self.u - 0.5)))
-
+            self.u_out_log.append(u_out)
+            
             #Update all shifting layers: f(g-1+m)
             self.u_shift   = u_out * self.movement
             self.u_shift_r = u_out * self.movement_r
@@ -166,6 +170,9 @@ class CAN:
         self.u_log = np.array(self.u_log)
         mat = ax.matshow(self.u_log.transpose(), aspect="auto",
                          extent=(-self.dt/2, self.u_log.shape[0]*self.dt - self.dt/2, -0.5, self.u_log.shape[1]-0.5))
+##        self.u_out_log = np.array(self.u_out_log)
+##        mat = ax.matshow(self.u_out_log.transpose(), aspect="auto",
+##                         extent=(-self.dt/2, self.u_out_log.shape[0]*self.dt - self.dt/2, -0.5, self.u_out_log.shape[1]-0.5))
         ax.xaxis.set_ticks_position('bottom')
         ax.set_title("Network activities")
         ax.set_xlabel("Time (s)")
@@ -179,6 +186,17 @@ class CAN:
         ax2.set_ylim(0,self.size * self.grid_position_factor)
         ax2.set_ylabel("Distance (m)")
         plt.subplots_adjust(right=0.8)
+        plt.show()
+
+    def plot_single_cell(self,index,sim_time):
+        cell_activity = []
+        for value in self.u_log:
+            cell_activity.append(value[index])
+        fig, ax = plt.subplots()
+        ax.xaxis.set_ticks_position('bottom')
+        plt.plot(cell_activity,'r-')        
+        print("Average cell activity:")
+        print(np.sum(cell_activity)*self.dt/sim_time)
         plt.show()
 
     
