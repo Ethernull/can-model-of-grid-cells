@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib import interactive
 import random
 import math
 from scipy import stats
@@ -9,30 +10,30 @@ class CAN:
         self.size = size
         #self.u = np.random.random(size)
 
-        self.u = np.zeros(size)
-        self.u[5] = 1 #Initial active gridcell
-        self.u_out_log = []
-        self.u_log = []
+        self.u = np.zeros(size) #Grid cells
+        self.u[5] = 1           #Initial active grid cell
+        self.u_out_log = []     #Log for grid cell values after calculations
+        self.u_log = []         #Log for grid cell values before calculations, after applying sigmoid
 
-        self.grid_position_factor = 0.025 # mapped distance between two cells in meters
-        self.grid_position_log = []
-        self.real_position = (size - 5 - 1) * self.grid_position_factor
+        self.grid_position_factor = 0.1 #Mapped distance between two cells in meters
+        self.grid_position_log = []     #Log for position on grid cell array
+        self.real_position = (size - 5 - 1) * self.grid_position_factor     #Position of target in m
+        self.spatial_bin = np.zeros(int(size*self.grid_position_factor*100))
+        self.activity_sums = np.zeros(int(size*self.grid_position_factor*100))
 
-        #self.spatial_bin = np.zeros(size*self.grid_position_factor*100)
-
-        self.tau = tau
-        self.dt = dt
-        self.beta = beta
-        self.ws_param = ws_param
-        self.h = h
+        self.tau = tau              #Time constant
+        self.dt = dt                #Delta time
+        self.beta = beta            #Sigmoid factor
+        self.ws_param = ws_param    #Weight shift parameter
+        self.h = h                  #Negative resting level
         self.von_mises = True
 
-        self.timestep_counter = 1
-        self.max_speed = 0.08 # in m/s
-        self.current_speed = speed
-        self.movement = 0.5
-        self.movement_r = 0.5
-        self.movement_l = 0
+        #self.timestep_counter = 1
+        self.max_speed = 0.8        #Maximum speed in m/s
+        self.current_speed = speed  #Momentary speed of target
+        self.movement = 0.5         #Percentage representing a still standing state
+        self.movement_r = 0.5       #Percentage representing movement to the right
+        self.movement_l = 0         #Percentage representing movement to the left
 
         self.slope_calc_done = False
         self.line_reg_slope = 0
@@ -44,6 +45,7 @@ class CAN:
         self.w_left = np.empty((size,size))
         phases = np.arange(-np.pi, np.pi, 2*np.pi/size)
         weight_shift = np.pi/self.ws_param
+        weight_strength = 1
 
         #Connectivity values used in for weight matrix, Sanarmirskaya and Schöner - 2010 
         sigma = 1.0 #range
@@ -53,9 +55,9 @@ class CAN:
         #Weight matrix using von Mises distribution
         if self.von_mises:
             for input_num, input_phase in enumerate(phases):
-                self.w[:, input_num] = np.exp(kappa * np.cos(phases - input_phase))/np.exp(kappa)
-                self.w_right[:, input_num] = np.exp(kappa * np.cos(phases + weight_shift - input_phase))/np.exp(kappa)
-                self.w_left[:, input_num] = np.exp(kappa * np.cos(phases - weight_shift - input_phase))/np.exp(kappa)
+                self.w[:, input_num] = weight_strength * np.exp(kappa * np.cos(phases - input_phase))/np.exp(kappa)
+                self.w_right[:, input_num] = weight_strength * np.exp(kappa * np.cos(phases + weight_shift - input_phase))/np.exp(kappa)
+                self.w_left[:, input_num] = weight_strength * np.exp(kappa * np.cos(phases - weight_shift - input_phase))/np.exp(kappa)
         else:   
             for input_num, input_phase in enumerate(phases):
                 self.w[:, input_num] = c_exc * np.exp( - pow((phases-input_phase),2) / (2* pow(sigma, 2))) - c_inh
@@ -143,7 +145,6 @@ class CAN:
             u_out = 1/(1 + np.exp(self.beta*(self.u - 0.5)))
             self.u_out_log.append(u_out)
             
-            #Update all shifting layers: f(g-1+m)
             self.u_shift   = u_out * self.movement
             self.u_shift_r = u_out * self.movement_r
             self.u_shift_l = u_out * self.movement_l
@@ -162,6 +163,10 @@ class CAN:
             p = self.update_position(step_num)
             self.translate_real_position(p)
             self.grid_position_log.append((step_num*self.dt,self.real_position/self.grid_position_factor))
+            #bin_index = int(round(self.real_position,2) *100)
+            #self.spatial_bin[bin_index] += 1
+
+        #print(self.spatial_bin)
         return [self.line_reg_slope,self.cell_reg_slope]
 
 
@@ -186,17 +191,38 @@ class CAN:
         ax2.set_ylim(0,self.size * self.grid_position_factor)
         ax2.set_ylabel("Distance (m)")
         plt.subplots_adjust(right=0.8)
+        interactive(True)
         plt.show()
 
     def plot_single_cell(self,index,sim_time):
-        cell_activity = []
+        travel_distance = sim_time * self.current_speed
+        single_cell_activity = []
         for value in self.u_log:
-            cell_activity.append(value[index])
+            single_cell_activity.append(value[index])
+        step_size = travel_distance/(len(self.u_log) - 1)
         fig, ax = plt.subplots()
         ax.xaxis.set_ticks_position('bottom')
-        plt.plot(cell_activity,'r-')        
-        print("Average cell activity:")
-        print(np.sum(cell_activity)*self.dt/sim_time)
+        ax.set_title("Cell #"+str(index)+" Activity")
+        ax.set_xlabel("Distance (m)")
+        ax.set_ylabel("Activity Value")
+        x_val = np.arange(0,travel_distance+step_size,step_size)
+        plt.plot(x_val,single_cell_activity,'b-')
+        
+        #print("Average cell activity:")
+        #print(np.sum(single_cell_activity)*self.dt/sim_time)
+        
+        for i in range(len(self.u_log)):
+            s = int(round((x_val[i]*100),0) % (self.size*self.grid_position_factor *100 -1)) 
+            if s == 200:
+                print(x_val[i])
+            self.spatial_bin[s] += 1
+            self.activity_sums[s] += single_cell_activity[i]
+        print('Spatial bins [1cm]')
+        print(self.spatial_bin)
+        print('Summed activities')
+        print(self.activity_sums)
+
+        interactive(False)
         plt.show()
 
     
