@@ -33,7 +33,7 @@ class CAN:
         self.w_right = np.empty((size,size))
         self.w_left = np.empty((size,size))
         phases = np.arange(-np.pi, np.pi, 2*np.pi/size)
-        weight_shift = np.pi * self.ws_param
+        weight_shift = 2* np.pi * self.ws_param
         weight_strength = 1
 
         #Connectivity values used in for weight matrix, Sanarmirskaya and Schöner - 2010 
@@ -129,8 +129,6 @@ class CAN:
         ax2.set_ylim(0,self.size * self.cell_distance)
         ax2.set_ylabel("Distance (m)")
         plt.subplots_adjust(right=0.8)
-        interactive(True)
-        plt.show()
 
     def plot_single_cell(self,index,sim_time):
         travel_distance = sim_time * self.current_speed
@@ -160,7 +158,5 @@ class CAN:
         print('Summed activities')
         print(self.activity_sums)
 
-        interactive(False)
-        plt.show()
 
     
