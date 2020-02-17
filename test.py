@@ -17,12 +17,12 @@ def single_run():
     can.plot_activities(u_out=True)
 
     print(can.slope_accuracy(speed,20,peak_cell_num))
-    #can.plot_single_cell(speed,19,20)
+    can.plot_single_cell(speed,19,20)
     plt.show()
 
 def multiple_runs(overwrite_file):
-    x = np.arange(1,0,-0.05) #Value range for ws_param
-    y = np.arange(0.2,0,-0.01) #Value range for tau
+    x = np.arange(0.05,1,0.05) #Value range for ws_param
+    y = np.arange(0.01,0.2,0.01) #Value range for tau
 
     if os.path.isfile(str(speed) + '-Log.csv') == False or overwrite_file == True:
         print("No existing data file found;\nCalculating new data set..")
@@ -47,8 +47,9 @@ def multiple_runs(overwrite_file):
         mat_vals = np.loadtxt(str(speed) + '-Log.csv',delimiter=',')
         
     #print(mat_vals)
+    mat_vals = np.clip(mat_vals, -100, 100)
     fig, ax = plt.subplots()
-    mat = ax.matshow(mat_vals)
+    mat = ax.matshow(mat_vals, origin='lower', aspect='auto', extent=(y[0]-(y[1]-y[0])/2, y[-1]+(y[1]-y[0])/2, x[0]-(x[1]-x[0])/2, x[-1]+(x[1]-x[0])/2))
     ax.xaxis.set_ticks_position('bottom')
     ax.set_title("Accuracy of grid slope to real slope in % for "+str(speed)+" m/s")
     ax.set_xlabel("Tau")
@@ -67,21 +68,18 @@ def multi_plot():
     mat_vals1 = np.loadtxt(str(0.4) + '-Log.csv',delimiter=',')
     mat_vals2 = np.loadtxt(str(0.6) + '-Log.csv',delimiter=',')
     mat_vals3 = np.loadtxt(str(0.8) + '-Log.csv',delimiter=',')
-    fig, ax = plt.subplots()
-    plt.subplot(1,3,1)
-    mat = ax.matshow(mat_vals1)
-    plt.subplot(1,3,2)
-    mat = ax.matshow(mat_vals2)
-    plt.subplot(1,3,3)
-    mat = ax.matshow(mat_vals3)
-    ax.xaxis.set_ticks_position('bottom')
-    ax.set_title("Accuracy of grid slope to real slope in % for "+str(speed)+" m/s")
-    ax.set_xlabel("Tau")
-    ax.set_ylabel("Pi factor [weight shift]")
+    fig, ax = plt.subplots(1, 3, sharey='row')
+    mat = ax[0].matshow(mat_vals1)
+    mat = ax[1].matshow(mat_vals2)
+    mat = ax[2].matshow(mat_vals3)
+    # ax.xaxis.set_ticks_position('bottom')
+    # ax.set_title("Accuracy of grid slope to real slope in % for "+str(speed)+" m/s")
+    # ax.set_xlabel("Tau")
+    # ax.set_ylabel("Pi factor [weight shift]")
     plt.colorbar(mat, ax=ax)
     plt.show()
 
 
-#multiple_runs(False)
-#single_run()
-multi_plot()
+multiple_runs(1)
+# single_run()
+# multi_plot()

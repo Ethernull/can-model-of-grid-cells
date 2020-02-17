@@ -146,15 +146,15 @@ class CAN:
         #print('Activity Speed '+str(cell_reg.slope*self.cell_distance))
         #print('Real Speed'+str(-speed))
         #print('Slope accuracy (%):')
-        result = cell_reg.slope/(-speed/self.cell_distance)
-        if result > 1:
-            result -= 1
-            if result > 1:
-                return 0
-            else:
-                return 1 - result
-        else:
-            return result
+        result = (cell_reg.slope - (-speed)/self.cell_distance)/(-speed/self.cell_distance)*100
+        # if result > 1:
+        #     result -= 1
+        #     if result > 1:
+        #         return 0
+        #     else:
+        #         return 1 - result
+        # else:
+        return result
         
 
     def plot_single_cell(self,speed,index,sim_time):
