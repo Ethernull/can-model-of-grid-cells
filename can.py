@@ -91,22 +91,6 @@ class CAN:
             #self.spatial_bin[bin_index] += 1
 
         #print(self.spatial_bin)
-
-
-##    def slope_accuracy(self,speed):
-##        x1 = int(2/self.dt)
-##        x2 = int(4/self.dt)
-##        active_cell_a = self.size-1-np.argmax(self.u_out_log[x1])
-##        active_cell_b = self.size-1-np.argmax(self.u_out_log[x2])
-##        print(x1)
-##        print(x2)
-##        print(active_cell_a)
-##        print(active_cell_b)
-##        a = np.array([[2,4],[active_cell_a,active_cell_b]])
-##        cell_reg = stats.linregress(a)
-##        print(cell_reg.slope)
-##        print(-speed/self.cell_distance)
-##        return str(100*cell_reg.slope/(-speed/self.cell_distance)) + '%'
     
     def plot_activities(self,u_out):
         fig, ax = plt.subplots()
@@ -138,26 +122,19 @@ class CAN:
             single_cell_activity.append(value[self.size - 1])
         sca = single_cell_activity[int(self.init_time/self.dt):len(single_cell_activity)]
         step_size = travel_distance/(len(self.u_log) - 1 - self.init_time/self.dt)
-        peaks, _ = find_peaks(sca, height=0)
+        peaks, _ = find_peaks(sca, height=0.5)
         if len(peaks) == 0:
-            return 0
+            return math.nan
         a = np.array([[0,peaks[0]*self.dt],[peak_cell_num,0]])
         cell_reg = stats.linregress(a)
         #print('Activity Speed '+str(cell_reg.slope*self.cell_distance))
         #print('Real Speed'+str(-speed))
         #print('Slope accuracy (%):')
         result = (cell_reg.slope - (-speed)/self.cell_distance)/(-speed/self.cell_distance)*100
-        # if result > 1:
-        #     result -= 1
-        #     if result > 1:
-        #         return 0
-        #     else:
-        #         return 1 - result
-        # else:
         return result
         
 
-    def plot_single_cell(self,speed,index,sim_time):
+    def plot_single_cell(self,speed,sim_time,index):
         travel_distance = sim_time * speed
         single_cell_activity = []
         for value in self.u_log:
@@ -170,9 +147,12 @@ class CAN:
         ax.set_xlabel("Distance (m)")
         ax.set_ylabel("Activity Value")
         x_val = np.arange(0,travel_distance+step_size,step_size)
+        if len(x_val) > len(sca):
+            x_val = np.arange(0,travel_distance+step_size/2,step_size)
         plt.plot(x_val,sca,'b-')
-        peaks, _ = find_peaks(sca, height=0)
-        plt.plot(peaks[0]*self.dt*speed,sca[peaks[0]],"x")
+        peaks, _ = find_peaks(sca, height=0.5)
+        if len(peaks) > 0:
+            plt.plot(peaks[0]*self.dt*speed,sca[peaks[0]],"x")
         
         #print("Average cell activity:")
         #print(np.sum(single_cell_activity)*self.dt/sim_time)
