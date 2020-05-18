@@ -1,64 +1,275 @@
 import matplotlib.pyplot as plt
-import matplotlib.tri as mtri
 import numpy as np
 import math
-from scipy.spatial import distance
-from mpl_toolkits.mplot3d import Axes3D
-from matplotlib import cm
-from matplotlib.ticker import LinearLocator, FormatStrFormatter
+from matplotlib.widgets import Slider
+from scipy.signal import find_peaks
+from target2D import TARGET2D
 
-def create_grid():
-    x = np.asarray([0, 1, 2, 3, 0.5, 1.5, 2.5, 0, 1, 2, 3, 0.5, 1.5, 2.5, 0, 1, 2, 3])
-    y = np.asarray([0, 0, 0, 0, 1.0, 1.0, 1.0, 2, 2, 2, 2, 3.0, 3.0, 3.0, 4, 4, 4, 4])
-    y = y*math.sqrt(3)/2
-    triangles = [[0, 1, 4], [4,5,1],[1,2,5],[5,6,2],[2,3,6],
-                 [4,7,8],[4,8,5],[5,8,9],[5,9,6],[6,9,10],
-                 [7,11,8],[8,11,12],[8,12,9],[9,12,13],[9,13,10],
-                 [11,14,15],[11,15,12],[12,15,16],[12,16,13],[13,16,17]]
-    triang = mtri.Triangulation(x, y, triangles)
+class CAN2D:
+    def __init__(self,target,cells_per_row,cell_rows,init_activity,dt,beta,ws_param,tau,h,period_length):
+        self.target = target                #Target object, providing movement data [speed, direction]
+        self.x = cells_per_row              #Number of cells per row
+        self.y = cell_rows                  #Number of cell rows
+        self.size = self.x * self.y         #Number of total cells
+        self.period_length = period_length  #Real life distance projected on grid horizontally
 
-    fig, ax = plt.subplots()
-    z = np.cos(1.5 * x) * np.cos(1.5 * y)
-    ax.tricontourf(triang, z)
-    ax.triplot(triang, 'ko-')
-    ax.set_title('Triangular grid')
+        self.u = np.zeros(self.size)        #Cell activities
+        self.cell_x = np.zeros(self.size)   #Horizontal positions of cells
+        self.cell_y = np.zeros(self.size)   #Vertical positions of cells
+        
 
-def create_weight_matrix():
-    a = (1,1)
-    b = (1,2)
-    c = (2,1)
-    cell_positions = [a,b,c]
-    #print(distance.euclidean(a,b))
-    weights = np.empty((20,20))
-    ws_param = 0
-    weight_shift = 2* np.pi * ws_param
-    weight_strength = 1
-    phases = np.arange(-np.pi, np.pi, 2*np.pi/20)
-    kappa = 0.1
+        self.u_out_log = []             #Log for grid cell activity values after calculations
+        self.u_log = []                 #Log for grid cell activity values before calculations, after applying sigmoid
 
-    #for input_num, input_phase in enumerate(phases):
-    #    weights[:, input_num] = weight_strength * np.exp(kappa * np.cos(phases - input_phase))/np.exp(kappa)
+        self.dt = dt                #Delta time
+        self.beta = beta            #Sigmoid factor
+        self.ws_param = ws_param    #Weight shift parameter
+        self.tau = tau              #Time constant
+        self.h = h                  #Adjustment factor
+
+        self.i_pos = init_activity  #Index number of first active cell
+        self.u[self.i_pos] = 1
+
+        self.init_time = 0          #Time spent in initialization phase
+
+        #Creating positions for cells
+        for j in range(0,self.y):
+            for i in range(0,self.x):
+                index = i+(self.x*j)
+                self.cell_x[index] = (i+0.5)/self.x
+                self.cell_y[index] = (j+0.5)/self.y
+
+        #Triangular height correction
+        self.cell_y = self.cell_y * (math.sqrt(3)/2)
+
+        #Places target at initial network spike to sync target and network
+        self.target.set_start_pos([self.cell_x[self.i_pos]*self.period_length,self.cell_y[self.i_pos]*self.period_length])
+
+        #Cell-to-Cell distance calculations---------------------------
+        self.distance = self.calc_distances((0,0))
+        self.distance_r = self.calc_distances(self.target.angle_to_vector(0))
+        self.distance_t_r = self.calc_distances(self.target.angle_to_vector(60))
+        self.distance_t_l = self.calc_distances(self.target.angle_to_vector(120))
+        #self.distance_l = self.calc_distances(self.target.angle_to_vector(270))
+        #self.distance_b_l = self.calc_distances(self.target.angle_to_vector(330))
+        #self.distance_b_r = self.calc_distances(self.target.angle_to_vector(30))
+
+        #Weight calculations-------------------------------------------
+        self.weights = self.calc_weights(self.distance)
+        self.weights_r = self.calc_weights(self.distance_r)
+        self.weights_t_r = self.calc_weights(self.distance_t_r)
+        self.weights_t_l = self.calc_weights(self.distance_t_l)
+
+    #Euclidean distance function including twisted torus attributes and a shifting mechanism
+    def min_distance(self,a,b,shift_dir):
+        d = []
+        #Triangular height
+        tri_h = math.sqrt(3)/2
+        #Twisted torus attributes
+        s = [[0,0],[-0.5,tri_h],[-0.5,-tri_h],[0.5,tri_h],[0.5,-tri_h],[-1,0],[1,0]]
+        
+        shift_strength = self.ws_param* (-1/self.x)
+        shift_x = shift_dir[0] * shift_strength
+        shift_y = shift_dir[1] * shift_strength
+
+        for si in s:
+            di = math.sqrt((b[0]-a[0]+si[0]+shift_x)**2 +(b[1]-a[1]+si[1]+shift_y)**2)
+            d.append(di)
+        return np.amin(d)
     
-    fig = plt.figure()
-    ax = fig.gca(projection='3d')
-    
-    X = phases
-    Y = phases
-    X, Y = np.meshgrid(X, Y)
-    #R = distance.euclidean([X,Y])
-    R = np.sqrt(X**2 + Y**2)
-    Z = np.exp(kappa * np.cos(R))/np.exp(kappa)
-    
+    #Calls distance function for each possible cell pair and returns collection of results            
+    def calc_distances(self,shift):
+            dist = np.zeros((self.size,self.size))
+            for a in range(0,self.size):
+                dist[a,a] = 0
+                for b in range(0,self.size):
+                    cell_a = ([self.cell_x[a],self.cell_y[a]])
+                    cell_b = ([self.cell_x[b],self.cell_y[b]])
+                    result = self.min_distance(cell_a,cell_b,shift)
+                    dist[a,b] = result
+            return dist
 
-    surf = ax.plot_surface(X, Y, Z, cmap=cm.coolwarm, linewidth=0, antialiased=False)
+    #Calculates weights using a gaussian function
+    def calc_weights(self,distances):
+        weights = np.empty((self.size,self.size))
+        I = 1
+        sigma = 1
+        for a in range(0,self.size):
+            for b in range(0,self.size):
+                result = I*np.exp(- (distances[a,b]**2)/(sigma**2))
+                weights[a,b] = result
+        return weights
 
-    ax.set_zlim(-1.01, 1.01)
-    ax.zaxis.set_major_locator(LinearLocator(10))
-    ax.zaxis.set_major_formatter(FormatStrFormatter('%.02f'))
+    #Initilizes network by running it non-moving target
+    def init_network(self,init_time):
+        #Init mode: Target returns speed: 0, direction: standing
+        self.target.set_init_mode(True)
+        self.run(init_time)
+        self.init_time += init_time
+        self.target.set_init_mode(False)
 
-    fig.colorbar(surf, shrink=0.5, aspect=5)
-    
-    
-create_weight_matrix()
-#create_grid()
-plt.show()
+    def run(self, sim_time):
+        for step_num in range(int(round(sim_time/self.dt)) + 1):
+            #Applying Sigmoid
+            u_out = 1/(1 + np.exp(self.beta*(self.u - 0.5)))
+            self.u_out_log.append(u_out)
+
+            #Updating and aquiring target movement and direction data
+            movement_input = self.target.update_position_2d(self.dt,step_num)
+
+            #Calculating shifting layers
+            self.u_shift   = u_out * movement_input[0]
+            self.u_shift_r = u_out * movement_input[1]
+            self.u_shift_t_r = u_out * movement_input[2]
+            self.u_shift_t_l = u_out * movement_input[3]
+
+            ##Calculating excitation values with shifting layers and corresponding weight matrices
+            exc_input = np.dot(self.u_shift, self.weights)
+            exc_input_r = np.dot(self.u_shift_r,self.weights_r)
+            exc_input_t_r = np.dot(self.u_shift_t_r,self.weights_t_r)
+            exc_input_t_l = np.dot(self.u_shift_t_l,self.weights_t_l)
+
+            exc_sum = exc_input + exc_input_r + exc_input_t_r + exc_input_t_l
+            
+            inh_input = max(0, np.sum(u_out) - 1)
+
+            #Calculating new activity values
+            self.u += (-self.u + exc_sum - inh_input - self.h)/self.tau*self.dt
+            self.u_log.append(self.u.copy())
+            
+    def plot_activities(self,u_out):
+        fig, ax = plt.subplots()
+        u = self.u_log
+        if u_out:
+            u = self.u_out_log
+        u = np.array(u)
+        mat = ax.matshow(u.transpose(), aspect="auto",
+                         extent=(-self.dt/2, u.shape[0]*self.dt - self.dt/2, -0.5, u.shape[1]-0.5))
+        ax.xaxis.set_ticks_position('bottom')
+        ax.set_title("Network activities")
+        ax.set_xlabel("Time [s]")
+        ax.set_ylabel("Unit number")
+        plt.show()
+
+    def plot_activities_interactive(self):
+        target_data = self.target.fetch_log_data()
+        
+        dx, dy = self.period_length/self.x, self.period_length*(math.sqrt(3)/2)/self.y
+        y, x = np.mgrid[slice(0, self.period_length*(math.sqrt(3)/2) + dy, dy),
+                        slice(0, self.period_length + dx, dx)]
+        
+        z = self.u_out_log[0]
+        z = np.reshape(z,(self.y,self.x))
+        z_min, z_max = -1, 1
+        
+        fig,ax = plt.subplots()
+        plt.subplots_adjust(left=0.1,bottom=0.22)
+        plt.axis([x.min(), x.max(), y.min(), y.max()])
+        plt.pcolor(x, y, z, cmap='RdBu', vmin=z_min, vmax=z_max)
+        cbar = plt.colorbar()
+        cbar.set_label("Cell Activity")
+
+        def setup():
+            ax.clear()
+            ax.set_title("Cell Activity")
+            ax.set_xlabel("Distance [m]")
+            ax.set_ylabel("Distance [m]")
+            
+        axSlider = plt.axes([0.12,0.05,0.8,0.05])
+        slider = Slider(axSlider,'Time [s]',0.0,self.dt*len(self.u_out_log)-self.dt,valinit=0.00,valfmt='%1.2f',valstep=self.dt)
+
+        #Called on slider change
+        def update(val):
+            index = int(val/self.dt)
+            z_new = self.u_out_log[index]
+            z_new = np.reshape(z_new,(self.y,self.x))
+            setup()
+            ax.pcolor(x, y, z_new, cmap='RdBu', vmin=z_min, vmax=z_max)
+            target_pos = target_data[index]
+            ax.plot(target_pos[0],target_pos[1],'ro')
+            fig.canvas.draw_idle()
+            
+        update(0)
+        slider.on_changed(update)
+        plt.show()
+
+    def plot_single_cell(self,speed,sim_time,index):
+        init_time = self.init_time
+        travel_distance = sim_time * speed
+        single_cell_activity = []
+        for value in self.u_log:
+            single_cell_activity.append(value[index])
+        sca = single_cell_activity[int(init_time/self.dt):len(single_cell_activity)]
+        step_size = travel_distance/(len(self.u_log) - 1 - init_time/self.dt)
+        fig, ax = plt.subplots()
+        ax.xaxis.set_ticks_position('bottom')
+        ax.set_title("Cell #"+str(index)+" Activity")
+        ax.set_xlabel("Distance [m]")
+        ax.set_ylabel("Activity Value")
+        x_val = np.arange(0,travel_distance+step_size,step_size)
+        if len(x_val) > len(sca):
+            x_val = np.arange(0,travel_distance+step_size/2,step_size)
+        plt.plot(x_val,sca,'b-')
+        peaks, _ = find_peaks(sca, height=0.5)
+        if len(peaks) > 0:
+            plt.plot(peaks[0]*self.dt*speed,sca[peaks[0]],"x")
+        #plt.show()
+
+    #Network error function. Compares speed and direction of network and target
+    #Implemented for  specific test case:
+    #-Target starts at cell 0 [Bottom-Left]
+    #-Target only moves up and/or to the right [0°-90°]
+    def error_benchmark(self,print_details):
+        #Index offset to exclude network initilization phase
+        index_excl_init = int(self.init_time/self.dt)
+        
+        network_data = self.u_out_log[index_excl_init:]
+        target_data = self.target.fetch_real_data()[index_excl_init:]
+
+        #Cell index for bottom left cell
+        start = 0
+        #Indizes for cells at the right end of the benchmark path
+        ends_right = range(self.x-3,self.size+1,self.x)
+        #Indizes for cells at the top end of the benchmark path
+        ends_top = range(self.size - 3*self.x,self.size-2*self.x,1)
+
+        #Returns time step and cell index when peak on specified benchmark borders was found
+        def find_time_step():
+            for index,n in enumerate(network_data):
+                for t in ends_top:
+                    if n[t] > 0.75:
+                        return [index,t]
+                for r in ends_right:
+                    if n[r] > 0.75:
+                        return [index,r]
+
+            return None
+
+        
+        result = find_time_step()
+
+        if result is not None:
+            time_step = result[0]
+            cell_index = result[1]
+            
+            network_vec = [self.cell_x[cell_index] - self.cell_x[start], self.cell_y[cell_index] - self.cell_y[start]]
+            target_vec = target_data[time_step]
+
+            distance_n = self.target.vector_magnitude(network_vec) * self.period_length
+            distance_t = self.target.vector_magnitude(target_vec)
+            
+            error = ((distance_n - distance_t)/distance_t)*100
+            angle = self.target.angle_between_vectors(network_vec,target_vec)
+            if print_details:
+                print("Network Distance:")
+                print(distance_n)
+                print("Target Distance:")
+                print(distance_t)
+                print("Error % [ND-TD/TD]:")
+                print(error)
+                print("Angle between direction vectors:")
+                print(angle)
+            return error
+        else:
+            print("Accurracy check failed")
+            return math.nan

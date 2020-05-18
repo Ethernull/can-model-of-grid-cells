@@ -9,35 +9,35 @@ from target import TARGET
 
 class CAN:
     def __init__(self,target, size, tau, dt, kappa, beta, ws_param, h, plot_weights=True,period_length=0.5):
-        self.target = target
-        self.size = size
-        self.u = np.zeros(self.size)
+        self.target = target            #Target object, providing movement data [speed, direction]
+        self.size = size                #Number of total cells
+        self.u = np.zeros(self.size)    #Cell activities
 
         self.u_out_log = []             #Log for grid cell values after calculations
         self.u_log = []                 #Log for grid cell values before calculations, after applying sigmoid
 
         self.cell_distance = period_length/size  #Mapped distance between two cells in meters
 
-        self.init_time = 0
-        self.spatial_bin = np.zeros(int(size*self.cell_distance*100))
-        self.activity_sums = np.zeros(int(size*self.cell_distance*100))
+        self.init_time = 0             #Time spent in initialization phase
 
         self.tau = tau              #Time constant
         self.dt = dt                #Delta time
         self.beta = beta            #Sigmoid factor
         self.ws_param = ws_param    #Weight shift parameter
         self.h = h                  #Negative resting level
-        self.von_mises = True
+        self.von_mises = True       #Setting to false creates and uses weight Matrix as described in Sanarmirskaya and Schöner - 2010
         
-        #Create weight matrix
+        #Weight matrices for standing, moving right and moving left
         self.w = np.empty((size, size))
         self.w_right = np.empty((size,size))
         self.w_left = np.empty((size,size))
         phases = np.arange(-np.pi, np.pi, 2*np.pi/size)
+
+        #Shifting parameters for directional weights
         weight_shift = 2* np.pi * self.ws_param
         weight_strength = 1
 
-        #Connectivity values used in for weight matrix, Sanarmirskaya and Schöner - 2010 
+        #Connectivity values used for weight matrix, Sanarmirskaya and Schöner - 2010 
         sigma = 1.0 #range
         c_exc = 1.0 #excitatory connectivity strength
         c_inh = 0.5 #inhibitory connectivity strength
@@ -53,11 +53,10 @@ class CAN:
                 self.w[:, input_num] = c_exc * np.exp( - pow((phases-input_phase),2) / (2* pow(sigma, 2))) - c_inh
                 self.w_right[:, input_num] = c_exc * np.exp( - pow((phases + weight_shift - input_phase), 2) / (2 * pow(sigma, 2))) - c_inh
                 self.w_left[:, input_num] = c_exc * np.exp( - pow((phases - weight_shift - input_phase), 2) / (2 * pow(sigma, 2))) - c_inh
-                
 
     def init_network_activity(self,peak_cell_num,init_time):
         
-        self.u[self.size-1-peak_cell_num] = 1       #Initial active grid cell
+        self.u[self.size-1-peak_cell_num] = 1       #Initially active grid cell
         self.target.set_init_mode(True)
         self.run(init_time)
         self.target.set_init_mode(False)
@@ -66,32 +65,32 @@ class CAN:
             
     def run(self, sim_time):
         for step_num in range(int(round(sim_time/self.dt)) + 1):
+            #Applying Sigmoid
             u_out = 1/(1 + np.exp(self.beta*(self.u - 0.5)))
             self.u_out_log.append(u_out)
-            
+
+            #Getting target movement data
             movement_input = self.target.update_position_1d(self.dt,step_num+self.init_time/self.dt)
-            
+
+            #Calculating shifting layers
             self.u_shift   = u_out * movement_input[0]
             self.u_shift_r = u_out * movement_input[1]
             self.u_shift_l = u_out * movement_input[2]
-            
+
+            #Calculating excitation values with shifting layers and corresponding weight matrices
             exc_input = np.dot(self.u_shift, self.w)
             exc_input_r = np.dot(self.u_shift_r,self.w_right)
             exc_input_l = np.dot(self.u_shift_l,self.w_left)
             
             if self.von_mises:
-                inh_input = max(0, np.sum(u_out) - 1)               #Inhibition, needed for von Mises distribution
+                inh_input = max(0, np.sum(u_out) - 1)       #Inhibition, needed for von Mises distribution
             else:
-                inh_input = 0
+                inh_input = 0                               #In Sanarmirskaya and Schöner - 2010, inhibizion is incorporated into weights
 
+            #Calculating new activity values
             self.u += (-self.u + exc_input - inh_input - self.h + exc_input_r + exc_input_l)/self.tau*self.dt
             self.u_log.append(self.u.copy())
-            
-            #bin_index = int(round(self.real_position,2) *100)
-            #self.spatial_bin[bin_index] += 1
 
-        #print(self.spatial_bin)
-    
     def plot_activities(self,u_out):
         fig, ax = plt.subplots()
         u = self.u_log
@@ -115,6 +114,7 @@ class CAN:
         ax2.set_ylabel("Distance (m)")
         plt.subplots_adjust(right=0.8)
 
+    #Slope comparison. first boundary hit is used as slope orientation point
     def slope_accuracy(self,speed,sim_time,peak_cell_num):
         travel_distance = sim_time * speed
         single_cell_activity = []
@@ -127,9 +127,6 @@ class CAN:
             return math.nan
         a = np.array([[0,peaks[0]*self.dt],[peak_cell_num,0]])
         cell_reg = stats.linregress(a)
-        #print('Activity Speed '+str(cell_reg.slope*self.cell_distance))
-        #print('Real Speed'+str(-speed))
-        #print('Slope accuracy (%):')
         result = (cell_reg.slope - (-speed)/self.cell_distance)/(-speed/self.cell_distance)*100
         return result
         
@@ -153,20 +150,4 @@ class CAN:
         peaks, _ = find_peaks(sca, height=0.5)
         if len(peaks) > 0:
             plt.plot(peaks[0]*self.dt*speed,sca[peaks[0]],"x")
-        
-        #print("Average cell activity:")
-        #print(np.sum(single_cell_activity)*self.dt/sim_time)
-        
-##        for i in range(len(self.u_log)):
-##            s = int(round((x_val[i]*100),0) % (self.size*self.grid_position_factor *100 -1)) 
-##            if s == 200:
-##                print(x_val[i])
-##            self.spatial_bin[s] += 1
-##            self.activity_sums[s] += single_cell_activity[i]
-##        print('Spatial bins [1cm]')
-##        print(self.spatial_bin)
-##        print('Summed activities')
-##        print(self.activity_sums)
-
-
     

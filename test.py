@@ -6,7 +6,7 @@ import os.path
 import math
 
 peak_cell_num = 15
-speed = 0.5
+speed = 0.1
 
 tg = TARGET(speed=speed,max_speed=0.8,size=20,peak_cell_num=peak_cell_num)
 
@@ -122,5 +122,5 @@ def error_over_speed(tau,ws):
 single_run()
 #multi_plot()
 #average_matrix()
-#error_over_speed(0.05,0.08)
+error_over_speed(0.05,0.08)
 plt.show()

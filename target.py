@@ -11,6 +11,14 @@ class TARGET:
         self.grid_position_log = []
         self.init_mode = False;
 
+    #Enhances movement signal for the network to work more accurately, internally
+    def signal_amplifier(self):
+        #y = -x +1.6   0.2 => 1.6   0.6 => 1    0.8 => 0.8
+        #amp_sig = 0.5* (-abs(self.speed) + 1.6)
+        amp_sig = (-0.05/0.3) * self.speed + 1.05
+        return amp_sig
+        #return 1
+        
     def update_position_1d(self,dt,step_num):
         if self.init_mode:
             self.grid_position_log.append((step_num*dt,self.real_position/self.cell_distance))
@@ -19,6 +27,7 @@ class TARGET:
         self.real_position -= self.speed * dt
         self.grid_position_log.append((step_num*dt,self.real_position/self.cell_distance))
 
+        #Out of bounds corrections
         if self.real_position < 0:
             self.grid_position_log.append((step_num*dt,math.nan))
             self.real_position = (self.size - 1) * self.cell_distance
@@ -27,15 +36,18 @@ class TARGET:
             self.grid_position_log.append((step_num*dt,math.nan))
             self.real_position = 0
 
-        s = 0
-        r = 0
-        l = 0
+        #Directional bias 0.0 to 1.0
+        s = 0       #Standing
+        r = 0       #Moving right
+        l = 0       #Moving left
         
         if self.speed > 0:
             r = self.speed/self.max_speed
+            r = r * self.signal_amplifier()
             s = 1 - r
         elif self.speed < 0:
             l = self.speed/self.max_speed
+            l = l * self.signal_amplifier()
             s = 1 - l
         else:
             s = 1
