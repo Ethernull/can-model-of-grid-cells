@@ -13,7 +13,6 @@ class TARGET:
 
     #Enhances movement signal for the network to work more accurately, internally
     def signal_amplifier(self):
-        #y = -x +1.6   0.2 => 1.6   0.6 => 1    0.8 => 0.8
         #amp_sig = 0.5* (-abs(self.speed) + 1.6)
         amp_sig = (-0.05/0.3) * self.speed + 1.05
         return amp_sig

@@ -87,7 +87,7 @@ class CAN:
             else:
                 inh_input = 0                               #In Sanarmirskaya and Schöner - 2010, inhibizion is incorporated into weights
 
-            #Calculating new activity values
+            #Calculating new activity values, DFT Sanarmirskaya and Schöner - 2010 
             self.u += (-self.u + exc_input - inh_input - self.h + exc_input_r + exc_input_l)/self.tau*self.dt
             self.u_log.append(self.u.copy())
 
@@ -100,7 +100,7 @@ class CAN:
         mat = ax.matshow(u.transpose(), aspect="auto",
                          extent=(-self.dt/2, u.shape[0]*self.dt - self.dt/2, -0.5, u.shape[1]-0.5))
         ax.xaxis.set_ticks_position('bottom')
-        ax.set_title("Network activities")
+        ax.set_title("Network activities at " + str(self.target.speed)+"m/s")
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("Unit number")
         target_data = self.target.fetch_log_data()
