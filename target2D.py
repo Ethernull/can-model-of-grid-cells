@@ -26,6 +26,12 @@ class TARGET2D:
         #Contains a value between 0 and 1 for each shifting layer of the network:
         #standing,right,top right, top left, left, bottom left, bottom right
         self.hexa_v = self.angle_to_hexa_v(direction)
+
+    def signal_amplifier(self):
+        #amp_sig = 0.5* (-abs(self.speed) + 1.6)
+        amp_sig = (-0.1/0.6) * self.speed + 1.12
+        #return amp_sig
+        return 1
         
     def angle_to_vector(self,angle):
         ang = math.radians(angle)
@@ -47,6 +53,10 @@ class TARGET2D:
         elif angle < 60:
             right = (60-angle)/60
             top_r = 1 - right
+            #right = math.cos(math.radians(angle - 0))
+            #top_r = math.cos(math.radians(60 - angle))
+            #print(right)
+            #print(top_r)
         elif angle == 60:
             top_r = 1
         elif angle < 120:
@@ -76,7 +86,7 @@ class TARGET2D:
             r = 1
 
         hexa_v =  np.array([0,right,top_r,top_l,left,bot_l,bot_r])
-        hexa_v = hexa_v * movement_strength
+        hexa_v = hexa_v * movement_strength * self.signal_amplifier()
         hexa_v[0] = standing
         return hexa_v
 

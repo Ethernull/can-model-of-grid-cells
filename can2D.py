@@ -50,15 +50,18 @@ class CAN2D:
         self.distance_r = self.calc_distances(self.target.angle_to_vector(0))
         self.distance_t_r = self.calc_distances(self.target.angle_to_vector(60))
         self.distance_t_l = self.calc_distances(self.target.angle_to_vector(120))
-        #self.distance_l = self.calc_distances(self.target.angle_to_vector(270))
-        #self.distance_b_l = self.calc_distances(self.target.angle_to_vector(330))
-        #self.distance_b_r = self.calc_distances(self.target.angle_to_vector(30))
+        self.distance_l = self.calc_distances(self.target.angle_to_vector(180))
+        self.distance_b_l = self.calc_distances(self.target.angle_to_vector(240))
+        self.distance_b_r = self.calc_distances(self.target.angle_to_vector(300))
 
         #Weight calculations-------------------------------------------
         self.weights = self.calc_weights(self.distance)
         self.weights_r = self.calc_weights(self.distance_r)
         self.weights_t_r = self.calc_weights(self.distance_t_r)
         self.weights_t_l = self.calc_weights(self.distance_t_l)
+        self.weights_l = self.calc_weights(self.distance_l)
+        self.weights_b_l = self.calc_weights(self.distance_b_l)
+        self.weights_b_r = self.calc_weights(self.distance_b_r)
 
     #Euclidean distance function including twisted torus attributes and a shifting mechanism
     def min_distance(self,a,b,shift_dir):
@@ -122,15 +125,21 @@ class CAN2D:
             self.u_shift_r = u_out * movement_input[1]
             self.u_shift_t_r = u_out * movement_input[2]
             self.u_shift_t_l = u_out * movement_input[3]
+            self.u_shift_l = u_out * movement_input[4]
+            self.u_shift_b_l = u_out * movement_input[5]
+            self.u_shift_b_r = u_out * movement_input[6]
 
             ##Calculating excitation values with shifting layers and corresponding weight matrices
             exc_input = np.dot(self.u_shift, self.weights)
             exc_input_r = np.dot(self.u_shift_r,self.weights_r)
             exc_input_t_r = np.dot(self.u_shift_t_r,self.weights_t_r)
             exc_input_t_l = np.dot(self.u_shift_t_l,self.weights_t_l)
+            exc_input_l = np.dot(self.u_shift_l,self.weights_l)
+            exc_input_b_l = np.dot(self.u_shift_b_l,self.weights_b_l)
+            exc_input_b_r = np.dot(self.u_shift_b_r,self.weights_b_r)
 
             exc_sum = exc_input + exc_input_r + exc_input_t_r + exc_input_t_l
-            
+            exc_sum += exc_input_l + exc_input_b_l + exc_input_b_r
             inh_input = max(0, np.sum(u_out) - 1)
 
             #Calculating new activity values
@@ -171,7 +180,7 @@ class CAN2D:
 
         def setup():
             ax.clear()
-            ax.set_title("Cell Activity")
+            ax.set_title("Cell Activity at "+str(self.target.speed)+" m/s" )
             ax.set_xlabel("Distance [m]")
             ax.set_ylabel("Distance [m]")
             
@@ -229,25 +238,22 @@ class CAN2D:
         #Cell index for bottom left cell
         start = 0
         #Indizes for cells at the right end of the benchmark path
-        ends_right = range(self.x-3,self.size+1,self.x)
+        ends_right = range(self.x-1,self.size,self.x)
         #Indizes for cells at the top end of the benchmark path
-        ends_top = range(self.size - 3*self.x,self.size-2*self.x,1)
+        ends_top = range(self.size - self.x,self.size,1)
 
-        #Returns time step and cell index when peak on specified benchmark borders was found
+        #Returns time step and cell index when peak reaches specified benchmark borders
         def find_time_step():
             for index,n in enumerate(network_data):
-                for t in ends_top:
-                    if n[t] > 0.75:
-                        return [index,t]
-                for r in ends_right:
-                    if n[r] > 0.75:
-                        return [index,r]
-
+                peak = np.argmax(n)
+                if peak in ends_right:
+                    return [index,peak]
+                if peak in ends_top:
+                    return [index,peak]
             return None
-
         
         result = find_time_step()
-
+        
         if result is not None:
             time_step = result[0]
             cell_index = result[1]
@@ -273,3 +279,4 @@ class CAN2D:
         else:
             print("Accurracy check failed")
             return math.nan
+        
